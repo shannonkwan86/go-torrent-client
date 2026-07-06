@@ -8,6 +8,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) != 2 {
+		log.Fatal("Usage: go-torrent-client <torrent-file>")
+	}
+
 	inPath := os.Args[1]
 
 	tf, err := torrentfile.Open(inPath)
