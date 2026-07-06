@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
-	"net/url"
 	"os"
-	"strconv"
 
 	"github.com/jackpal/bencode-go"
 )
@@ -67,27 +65,6 @@ func (i *bencodeInfo) hash() ([20]byte, error) {
 	return hash, nil
 }
 
-// buildTrackerURL 根据 torrent 元信息和当前客户端身份构造 tracker announce 请求地址。
-// 这里的 info_hash 和 peer_id 必须按原始 20 字节传入，再交给 URL 编码处理。
-func (tf *TorrentFile) buildTrackerURL(peerID [20]byte, port uint16) (string, error) {
-	base, err := url.Parse(tf.Announce)
-	if err != nil {
-		return "", err
-	}
-
-	query := base.Query()
-	query.Set("info_hash", string(tf.InfoHash[:]))
-	query.Set("peer_id", string(peerID[:]))
-	query.Set("port", strconv.Itoa(int(port)))
-	query.Set("uploaded", "0")
-	query.Set("downloaded", "0")
-	query.Set("compact", "1")
-	query.Set("left", strconv.Itoa(tf.Length))
-	base.RawQuery = query.Encode()
-
-	return base.String(), nil
-}
-
 // Open 读取 .torrent 文件，并把原始 bencode 数据转换成程序内部使用的 TorrentFile。
 func Open(path string) (*TorrentFile, error) {
 	file, err := os.Open(path)
@@ -100,6 +77,12 @@ func Open(path string) (*TorrentFile, error) {
 	if err := bencode.Unmarshal(file, &bto); err != nil {
 		return nil, err
 	}
+
+	return bto.toTorrentFile()
+}
+
+// toTorrentFile 将 bencode 解码后的原始结构转换成程序内部使用的 TorrentFile。
+func (bto *bencodeTorrent) toTorrentFile() (*TorrentFile, error) {
 	pieceHashes, err := splitPieceHashes(bto.Info.Pieces)
 	if err != nil {
 		return nil, err
