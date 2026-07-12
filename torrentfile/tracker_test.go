@@ -4,6 +4,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/shannonkwan86/go-torrent-client/peers"
@@ -25,9 +27,37 @@ func TestBuildTrackerURL(t *testing.T) {
 	peerID := [20]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
 	const port uint16 = 6882
 	url, err := to.buildTrackerURL(peerID, port)
-	expected := "http://bttracker.debian.org:6969/announce?compact=1&downloaded=0&event=started&info_hash=%D8%F79%CE%C3%28%95l%CC%5B%BF%1F%86%D9%FD%CF%DB%A8%CE%B6&left=351272960&numwant=200&peer_id=%01%02%03%04%05%06%07%08%09%0A%0B%0C%0D%0E%0F%10%11%12%13%14&port=6882&uploaded=0"
+	expected := "http://bttracker.debian.org:6969/announce?compact=1&downloaded=0&event=started&info_hash=%D8%F79%CE%C3%28%95l%CC%5B%BF%1F%86%D9%FD%CF%DB%A8%CE%B6&left=351272960&numwant=500&peer_id=%01%02%03%04%05%06%07%08%09%0A%0B%0C%0D%0E%0F%10%11%12%13%14&port=6882&uploaded=0"
 	assert.Nil(t, err)
 	assert.Equal(t, url, expected)
+}
+
+func TestDiscoverPeersMergesTrackerBatches(t *testing.T) {
+	batches := [][]byte{
+		{192, 0, 2, 1, 0x1A, 0xE1, 192, 0, 2, 2, 0x1A, 0xE2},
+		{192, 0, 2, 2, 0x1A, 0xE2, 192, 0, 2, 3, 0x1A, 0xE3},
+		{192, 0, 2, 3, 0x1A, 0xE3},
+	}
+	request := 0
+	var mu sync.Mutex
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		batch := batches[request]
+		request++
+		mu.Unlock()
+		response := append([]byte("d5:peers"+strconv.Itoa(len(batch))+":"), batch...)
+		response = append(response, 'e')
+		_, _ = w.Write(response)
+	}))
+	defer ts.Close()
+
+	tf := TorrentFile{Announce: ts.URL, Length: 1}
+	got, err := tf.discoverPeers([20]byte{}, 6881)
+	assert.NoError(t, err)
+	assert.Len(t, got, 3)
+	mu.Lock()
+	assert.Equal(t, trackerDiscoveryRounds, request)
+	mu.Unlock()
 }
 
 func TestRequestPeers(t *testing.T) {

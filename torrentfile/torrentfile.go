@@ -44,13 +44,13 @@ func (t *TorrentFile) DownloadToFile(path string) error {
 		return err
 	}
 
-	peers, err := t.requestPeers(peerID, Port)
+	peerList, err := t.discoverPeers(peerID, Port)
 	if err != nil {
 		return err
 	}
 
 	torrent := p2p.Torrent{
-		Peers:       peers,
+		Peers:       peerList,
 		PeerID:      peerID,
 		InfoHash:    t.InfoHash,
 		PieceHashes: t.PieceHashes,

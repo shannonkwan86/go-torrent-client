@@ -18,6 +18,8 @@ type bencodeTrackerResp struct {
 	Peers         string `bencode:"peers"`
 }
 
+const trackerDiscoveryRounds = 3
+
 func (t *TorrentFile) buildTrackerURL(peerID [20]byte, port uint16) (string, error) {
 	base, err := url.Parse(t.Announce)
 	if err != nil {
@@ -32,10 +34,52 @@ func (t *TorrentFile) buildTrackerURL(peerID [20]byte, port uint16) (string, err
 		"compact":    []string{"1"},
 		"left":       []string{strconv.Itoa(t.Length)},
 		"event":      []string{"started"},
-		"numwant":    []string{"200"},
+		"numwant":    []string{"500"},
 	}
 	base.RawQuery = params.Encode()
 	return base.String(), nil
+}
+
+// discoverPeers performs several announces because public trackers commonly
+// return a random subset containing many stale peers.
+func (t *TorrentFile) discoverPeers(peerID [20]byte, port uint16) ([]peers.Peer, error) {
+	type announceResult struct {
+		peers []peers.Peer
+		err   error
+	}
+	results := make(chan announceResult, trackerDiscoveryRounds)
+	for i := 0; i < trackerDiscoveryRounds; i++ {
+		go func() {
+			batch, err := t.requestPeers(peerID, port)
+			results <- announceResult{peers: batch, err: err}
+		}()
+	}
+
+	seen := make(map[string]peers.Peer)
+	var lastErr error
+	for i := 0; i < trackerDiscoveryRounds; i++ {
+		result := <-results
+		if result.err != nil {
+			lastErr = result.err
+			continue
+		}
+		for _, peer := range result.peers {
+			seen[peer.String()] = peer
+		}
+	}
+
+	if len(seen) == 0 {
+		if lastErr != nil {
+			return nil, fmt.Errorf("peer discovery failed after %d announces: %w", trackerDiscoveryRounds, lastErr)
+		}
+		return nil, fmt.Errorf("tracker returned no peers after %d announces", trackerDiscoveryRounds)
+	}
+
+	result := make([]peers.Peer, 0, len(seen))
+	for _, peer := range seen {
+		result = append(result, peer)
+	}
+	return result, nil
 }
 
 func (t *TorrentFile) requestPeers(peerID [20]byte, port uint16) ([]peers.Peer, error) {
