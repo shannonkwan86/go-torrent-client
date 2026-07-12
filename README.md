@@ -1,24 +1,21 @@
-# torrent-client
+# go-torrent-client
 
-[![CircleCI](https://circleci.com/gh/veggiedefender/torrent-client.svg?style=shield)](https://circleci.com/gh/veggiedefender/torrent-client)
+[![CircleCI](https://circleci.com/gh/shannonkwan86/go-torrent-client.svg?style=shield)](https://circleci.com/gh/shannonkwan86/go-torrent-client)
 
 Tiny BitTorrent client written in Go. Read the blog post: https://blog.jse.li/posts/torrent/
 
 ## Install
 
 ```sh
-go get github.com/veggiedefender/torrent-client
+go install github.com/shannonkwan86/go-torrent-client@latest
 ```
 
 ## Usage
 Try downloading the current [Debian netinst torrent](https://cdimage.debian.org/debian-cd/current/amd64/bt-cd/)!
 
 ```sh
-torrent-client debian-13.6.0-amd64-netinst.iso.torrent debian.iso
+go-torrent-client debian-13.6.0-amd64-netinst.iso.torrent debian.iso
 ```
-
-[![asciicast](https://asciinema.org/a/xqRSB0Jec8RN91Zt89rbb9PcL.svg)](https://asciinema.org/a/xqRSB0Jec8RN91Zt89rbb9PcL)
-
 
 ## Limitations
 * Only supports `.torrent` files (no magnet links)

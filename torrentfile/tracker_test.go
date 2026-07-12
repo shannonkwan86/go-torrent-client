@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/shannonkwan86/go-torrent-client/peers"
 	"github.com/stretchr/testify/assert"
-	"github.com/veggiedefender/torrent-client/peers"
 )
 
 func TestBuildTrackerURL(t *testing.T) {

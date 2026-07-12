@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/veggiedefender/torrent-client/client"
-	"github.com/veggiedefender/torrent-client/message"
-	"github.com/veggiedefender/torrent-client/peers"
+	"github.com/shannonkwan86/go-torrent-client/client"
+	"github.com/shannonkwan86/go-torrent-client/message"
+	"github.com/shannonkwan86/go-torrent-client/peers"
 )
 
 func TestPieceProgressIgnoresDuplicateAndRejectsUnrequestedBlock(t *testing.T) {

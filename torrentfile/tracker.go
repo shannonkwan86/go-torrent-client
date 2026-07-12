@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/veggiedefender/torrent-client/peers"
+	"github.com/shannonkwan86/go-torrent-client/peers"
 
 	"github.com/jackpal/bencode-go"
 )
