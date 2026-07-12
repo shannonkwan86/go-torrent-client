@@ -1,65 +1,66 @@
 package torrentfile
 
 import (
-	"bytes"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jackpal/bencode-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/veggiedefender/torrent-client/peers"
 )
 
 func TestBuildTrackerURL(t *testing.T) {
-	var infoHash, peerID [20]byte
-	copy(infoHash[:], "info-hash-1234567890")
-	copy(peerID[:], "peer-id--1234567890")
-	tf := TorrentFile{Announce: "https://tracker.example/announce?existing=value", InfoHash: infoHash, Length: 123}
-
-	rawURL, err := tf.buildTrackerURL(peerID, 6881)
-	if err != nil {
-		t.Fatalf("buildTrackerURL() error = %v", err)
+	to := TorrentFile{
+		Announce: "http://bttracker.debian.org:6969/announce",
+		InfoHash: [20]byte{216, 247, 57, 206, 195, 40, 149, 108, 204, 91, 191, 31, 134, 217, 253, 207, 219, 168, 206, 182},
+		PieceHashes: [][20]byte{
+			{49, 50, 51, 52, 53, 54, 55, 56, 57, 48, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106},
+			{97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 49, 50, 51, 52, 53, 54, 55, 56, 57, 48},
+		},
+		PieceLength: 262144,
+		Length:      351272960,
+		Name:        "debian-10.2.0-amd64-netinst.iso",
 	}
-
-	req := httptest.NewRequest(http.MethodGet, rawURL, nil)
-	query := req.URL.Query()
-	if query.Get("info_hash") != string(infoHash[:]) || query.Get("peer_id") != string(peerID[:]) {
-		t.Error("tracker URL does not preserve binary hashes")
-	}
-	if query.Get("port") != "6881" || query.Get("left") != "123" || query.Get("compact") != "1" {
-		t.Errorf("tracker query = %v, want required announce parameters", query)
-	}
-	if query.Get("existing") != "value" {
-		t.Error("tracker URL dropped existing query parameter")
-	}
+	peerID := [20]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+	const port uint16 = 6882
+	url, err := to.buildTrackerURL(peerID, port)
+	expected := "http://bttracker.debian.org:6969/announce?compact=1&downloaded=0&event=started&info_hash=%D8%F79%CE%C3%28%95l%CC%5B%BF%1F%86%D9%FD%CF%DB%A8%CE%B6&left=351272960&numwant=200&peer_id=%01%02%03%04%05%06%07%08%09%0A%0B%0C%0D%0E%0F%10%11%12%13%14&port=6882&uploaded=0"
+	assert.Nil(t, err)
+	assert.Equal(t, url, expected)
 }
 
 func TestRequestPeers(t *testing.T) {
-	var infoHash, peerID [20]byte
-	copy(infoHash[:], "info-hash-1234567890")
-	copy(peerID[:], "peer-id--1234567890")
-	compactPeers := string([]byte{127, 0, 0, 1, 0x1A, 0xE1})
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("compact") != "1" {
-			t.Errorf("compact query = %q, want 1", r.URL.Query().Get("compact"))
-		}
-		var body bytes.Buffer
-		if err := bencode.Marshal(&body, bencodeTrackerResp{Interval: 60, Peers: compactPeers}); err != nil {
-			t.Fatalf("bencode.Marshal() error = %v", err)
-		}
-		_, _ = w.Write(body.Bytes())
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := []byte(
+			"d" +
+				"8:interval" + "i900e" +
+				"5:peers" + "12:" +
+				string([]byte{
+					192, 0, 2, 123, 0x1A, 0xE1, // 0x1AE1 = 6881
+					127, 0, 0, 1, 0x1A, 0xE9, // 0x1AE9 = 6889
+				}) + "e")
+		w.Write(response)
 	}))
-	defer server.Close()
-
-	tf := TorrentFile{Announce: server.URL, InfoHash: infoHash, Length: 10}
-	got, err := tf.requestPeers(peerID, 6881)
-	if err != nil {
-		t.Fatalf("requestPeers() error = %v", err)
+	defer ts.Close()
+	tf := TorrentFile{
+		Announce: ts.URL,
+		InfoHash: [20]byte{216, 247, 57, 206, 195, 40, 149, 108, 204, 91, 191, 31, 134, 217, 253, 207, 219, 168, 206, 182},
+		PieceHashes: [][20]byte{
+			{49, 50, 51, 52, 53, 54, 55, 56, 57, 48, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106},
+			{97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 49, 50, 51, 52, 53, 54, 55, 56, 57, 48},
+		},
+		PieceLength: 262144,
+		Length:      351272960,
+		Name:        "debian-10.2.0-amd64-netinst.iso",
 	}
-	if got, want := len(got), 1; got != want {
-		t.Fatalf("peer count = %d, want %d", got, want)
+	peerID := [20]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+	const port uint16 = 6882
+	expected := []peers.Peer{
+		{IP: net.IP{192, 0, 2, 123}, Port: 6881},
+		{IP: net.IP{127, 0, 0, 1}, Port: 6889},
 	}
-	if got[0].String() != "127.0.0.1:6881" {
-		t.Errorf("peer = %q, want %q", got[0].String(), "127.0.0.1:6881")
-	}
+	p, err := tf.requestPeers(peerID, port)
+	assert.Nil(t, err)
+	assert.Equal(t, expected, p)
 }

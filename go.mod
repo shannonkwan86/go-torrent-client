@@ -1,5 +1,8 @@
-module github.com/shannonkwan86/go-torrent-client
+module github.com/veggiedefender/torrent-client
 
-go 1.26.4
+go 1.13
 
-require github.com/jackpal/bencode-go v1.0.2
+require (
+	github.com/jackpal/bencode-go v0.0.0-20180813173944-227668e840fa
+	github.com/stretchr/testify v1.4.0
+)

@@ -1,95 +1,88 @@
 package torrentfile
 
 import (
-	"bytes"
-	"crypto/sha1"
-	"os"
-	"path/filepath"
+	"encoding/json"
+	"flag"
+	"io/ioutil"
 	"testing"
 
-	"github.com/jackpal/bencode-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestSplitPieceHashes(t *testing.T) {
-	pieces := string(bytes.Repeat([]byte{1}, 20)) + string(bytes.Repeat([]byte{2}, 20))
+var update = flag.Bool("update", false, "update .golden.json files")
 
-	got, err := splitPieceHashes(pieces)
-	if err != nil {
-		t.Fatalf("splitPieceHashes() error = %v", err)
-	}
-	if got, want := len(got), 2; got != want {
-		t.Fatalf("hash count = %d, want %d", got, want)
-	}
-	if got[0][0] != 1 || got[1][0] != 2 {
-		t.Errorf("hashes = %v, want distinct 20-byte hashes", got)
-	}
-}
+func TestOpen(t *testing.T) {
+	torrent, err := Open("testdata/archlinux-2019.12.01-x86_64.iso.torrent")
+	require.Nil(t, err)
 
-func TestSplitPieceHashesRejectsInvalidLength(t *testing.T) {
-	_, err := splitPieceHashes("too short")
-	if err == nil {
-		t.Fatal("splitPieceHashes() error = nil, want error")
+	goldenPath := "testdata/archlinux-2019.12.01-x86_64.iso.torrent.golden.json"
+	if *update {
+		serialized, err := json.MarshalIndent(torrent, "", "  ")
+		require.Nil(t, err)
+		ioutil.WriteFile(goldenPath, serialized, 0644)
 	}
+
+	expected := TorrentFile{}
+	golden, err := ioutil.ReadFile(goldenPath)
+	require.Nil(t, err)
+	err = json.Unmarshal(golden, &expected)
+	require.Nil(t, err)
+
+	assert.Equal(t, expected, torrent)
 }
 
 func TestToTorrentFile(t *testing.T) {
-	pieces := string(bytes.Repeat([]byte{3}, 20))
-	bto := bencodeTorrent{
-		Announce: "https://tracker.example/announce",
-		Info: bencodeInfo{
-			Pieces:      pieces,
-			PieceLength: 16,
-			Length:      42,
-			Name:        "example.txt",
+	tests := map[string]struct {
+		input  *bencodeTorrent
+		output TorrentFile
+		fails  bool
+	}{
+		"correct conversion": {
+			input: &bencodeTorrent{
+				Announce: "http://bttracker.debian.org:6969/announce",
+				Info: bencodeInfo{
+					Pieces:      "1234567890abcdefghijabcdefghij1234567890",
+					PieceLength: 262144,
+					Length:      351272960,
+					Name:        "debian-10.2.0-amd64-netinst.iso",
+				},
+			},
+			output: TorrentFile{
+				Announce: "http://bttracker.debian.org:6969/announce",
+				InfoHash: [20]byte{216, 247, 57, 206, 195, 40, 149, 108, 204, 91, 191, 31, 134, 217, 253, 207, 219, 168, 206, 182},
+				PieceHashes: [][20]byte{
+					{49, 50, 51, 52, 53, 54, 55, 56, 57, 48, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106},
+					{97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 49, 50, 51, 52, 53, 54, 55, 56, 57, 48},
+				},
+				PieceLength: 262144,
+				Length:      351272960,
+				Name:        "debian-10.2.0-amd64-netinst.iso",
+			},
+			fails: false,
+		},
+		"not enough bytes in pieces": {
+			input: &bencodeTorrent{
+				Announce: "http://bttracker.debian.org:6969/announce",
+				Info: bencodeInfo{
+					Pieces:      "1234567890abcdefghijabcdef", // Only 26 bytes
+					PieceLength: 262144,
+					Length:      351272960,
+					Name:        "debian-10.2.0-amd64-netinst.iso",
+				},
+			},
+			output: TorrentFile{},
+			fails:  true,
 		},
 	}
 
-	got, err := bto.toTorrentFile()
-	if err != nil {
-		t.Fatalf("toTorrentFile() error = %v", err)
-	}
-
-	var encoded bytes.Buffer
-	if err := bencode.Marshal(&encoded, bto.Info); err != nil {
-		t.Fatalf("bencode.Marshal() error = %v", err)
-	}
-	wantHash := sha1.Sum(encoded.Bytes())
-	if got.Announce != bto.Announce || got.Name != bto.Info.Name || got.Length != bto.Info.Length || got.PieceLength != bto.Info.PieceLength {
-		t.Errorf("TorrentFile metadata = %#v, want fields from bencode input", got)
-	}
-	if got.InfoHash != wantHash {
-		t.Errorf("InfoHash = %x, want %x", got.InfoHash, wantHash)
-	}
-	if got, want := len(got.PieceHashes), 1; got != want {
-		t.Errorf("piece hash count = %d, want %d", got, want)
-	}
-}
-
-func TestOpen(t *testing.T) {
-	bto := bencodeTorrent{
-		Announce: "https://tracker.example/announce",
-		Info: bencodeInfo{
-			Pieces:      string(bytes.Repeat([]byte{4}, 20)),
-			PieceLength: 32,
-			Length:      32,
-			Name:        "sample.bin",
-		},
-	}
-
-	var encoded bytes.Buffer
-	if err := bencode.Marshal(&encoded, bto); err != nil {
-		t.Fatalf("bencode.Marshal() error = %v", err)
-	}
-	path := filepath.Join(t.TempDir(), "sample.torrent")
-	if err := os.WriteFile(path, encoded.Bytes(), 0o600); err != nil {
-		t.Fatalf("os.WriteFile() error = %v", err)
-	}
-
-	got, err := Open(path)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	if got.Name != "sample.bin" || got.Length != 32 || got.PieceLength != 32 {
-		t.Errorf("Open() = %#v, want parsed torrent metadata", got)
+	for _, test := range tests {
+		to, err := test.input.toTorrentFile()
+		if test.fails {
+			assert.NotNil(t, err)
+		} else {
+			assert.Nil(t, err)
+		}
+		assert.Equal(t, test.output, to)
 	}
 }

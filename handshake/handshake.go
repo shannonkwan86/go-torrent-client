@@ -5,14 +5,14 @@ import (
 	"io"
 )
 
-// Handshake 是 peer 建立连接后交换的第一条 BitTorrent 协议消息。
+// A Handshake is a special message that a peer uses to identify itself
 type Handshake struct {
 	Pstr     string
 	InfoHash [20]byte
 	PeerID   [20]byte
 }
 
-// New 创建使用标准协议名的 handshake。
+// New creates a new handshake with the standard pstr
 func New(infoHash, peerID [20]byte) *Handshake {
 	return &Handshake{
 		Pstr:     "BitTorrent protocol",
@@ -21,45 +21,48 @@ func New(infoHash, peerID [20]byte) *Handshake {
 	}
 }
 
-// Serialize 将 handshake 转换成 BitTorrent peer wire protocol 要求的字节格式。
+// Serialize serializes the handshake to a buffer
 func (h *Handshake) Serialize() []byte {
 	buf := make([]byte, len(h.Pstr)+49)
 	buf[0] = byte(len(h.Pstr))
-
 	curr := 1
 	curr += copy(buf[curr:], h.Pstr)
-	curr += copy(buf[curr:], make([]byte, 8))
+	curr += copy(buf[curr:], make([]byte, 8)) // 8 reserved bytes
 	curr += copy(buf[curr:], h.InfoHash[:])
 	curr += copy(buf[curr:], h.PeerID[:])
-
 	return buf
 }
 
-// Read 从输入流中读取并解析一条 handshake 消息。
+// Read parses a handshake from a stream
 func Read(r io.Reader) (*Handshake, error) {
 	lengthBuf := make([]byte, 1)
-	if _, err := io.ReadFull(r, lengthBuf); err != nil {
+	_, err := io.ReadFull(r, lengthBuf)
+	if err != nil {
 		return nil, err
 	}
-
 	pstrlen := int(lengthBuf[0])
-	if pstrlen == 0 {
-		return nil, fmt.Errorf("pstrlen cannot be 0")
-	}
 
-	handshakeBuf := make([]byte, pstrlen+48)
-	if _, err := io.ReadFull(r, handshakeBuf); err != nil {
+	if pstrlen == 0 {
+		err := fmt.Errorf("pstrlen cannot be 0")
 		return nil, err
 	}
 
-	var infoHash [20]byte
-	var peerID [20]byte
+	handshakeBuf := make([]byte, 48+pstrlen)
+	_, err = io.ReadFull(r, handshakeBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	var infoHash, peerID [20]byte
+
 	copy(infoHash[:], handshakeBuf[pstrlen+8:pstrlen+8+20])
 	copy(peerID[:], handshakeBuf[pstrlen+8+20:])
 
-	return &Handshake{
-		Pstr:     string(handshakeBuf[:pstrlen]),
+	h := Handshake{
+		Pstr:     string(handshakeBuf[0:pstrlen]),
 		InfoHash: infoHash,
 		PeerID:   peerID,
-	}, nil
+	}
+
+	return &h, nil
 }

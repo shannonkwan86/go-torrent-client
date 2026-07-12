@@ -1,34 +1,49 @@
 package bitfield
 
-import "testing"
+import (
+	"testing"
 
-func TestBitfieldHasAndSetPiece(t *testing.T) {
-	bf := Bitfield{0b10000001, 0b01000000}
+	"github.com/stretchr/testify/assert"
+)
 
-	for _, index := range []int{0, 7, 9} {
-		if !bf.HasPiece(index) {
-			t.Errorf("HasPiece(%d) = false, want true", index)
-		}
-	}
-	if bf.HasPiece(1) {
-		t.Error("HasPiece(1) = true, want false")
-	}
-
-	bf.SetPiece(14)
-	if !bf.HasPiece(14) {
-		t.Error("SetPiece(14) did not set piece")
+func TestHasPiece(t *testing.T) {
+	bf := Bitfield{0b01010100, 0b01010100}
+	outputs := []bool{false, true, false, true, false, true, false, false, false, true, false, true, false, true, false, false, false, false, false, false}
+	for i := 0; i < len(outputs); i++ {
+		assert.Equal(t, outputs[i], bf.HasPiece(i))
 	}
 }
 
-func TestBitfieldIgnoresOutOfRangeIndexes(t *testing.T) {
-	bf := Bitfield{0}
-	bf.SetPiece(-1)
-	bf.SetPiece(8)
-
-	if bf[0] != 0 {
-		t.Errorf("bitfield = %08b, want unchanged", bf[0])
+func TestSetPiece(t *testing.T) {
+	tests := []struct {
+		input Bitfield
+		index int
+		outpt Bitfield
+	}{
+		{
+			input: Bitfield{0b01010100, 0b01010100},
+			index: 4, //          v (set)
+			outpt: Bitfield{0b01011100, 0b01010100},
+		},
+		{
+			input: Bitfield{0b01010100, 0b01010100},
+			index: 9, //                   v (noop)
+			outpt: Bitfield{0b01010100, 0b01010100},
+		},
+		{
+			input: Bitfield{0b01010100, 0b01010100},
+			index: 15, //                        v (set)
+			outpt: Bitfield{0b01010100, 0b01010101},
+		},
+		{
+			input: Bitfield{0b01010100, 0b01010100},
+			index: 19, //                            v (noop)
+			outpt: Bitfield{0b01010100, 0b01010100},
+		},
 	}
-	if bf.HasPiece(-1) || bf.HasPiece(8) {
-		t.Error("out-of-range piece reported as present")
+	for _, test := range tests {
+		bf := test.input
+		bf.SetPiece(test.index)
+		assert.Equal(t, test.outpt, bf)
 	}
 }
