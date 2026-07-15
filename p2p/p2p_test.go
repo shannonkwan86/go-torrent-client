@@ -84,3 +84,23 @@ func TestDownloadReturnsWhenAllPeersFail(t *testing.T) {
 		t.Fatal("Download() blocked after all peers failed")
 	}
 }
+
+func TestSendPieceResultStopsWithoutReceiver(t *testing.T) {
+	results := make(chan *pieceResult)
+	stop := make(chan struct{})
+	close(stop)
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- sendPieceResult(results, &pieceResult{index: 1}, stop)
+	}()
+
+	select {
+	case sent := <-done:
+		if sent {
+			t.Fatal("sendPieceResult() = true after stop, want false")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("sendPieceResult() blocked after stop")
+	}
+}

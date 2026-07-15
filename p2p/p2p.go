@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
-	"runtime"
+	"sync"
 	"time"
 
 	"github.com/shannonkwan86/go-torrent-client/client"
@@ -159,6 +159,17 @@ func (t *Torrent) startDownloadWorker(peer peers.Peer, workQueue chan *pieceWork
 		return
 	}
 	defer c.Conn.Close()
+	// Closing the connection interrupts a worker blocked in Read or Write when
+	// the download coordinator asks all workers to stop.
+	connectionDone := make(chan struct{})
+	go func() {
+		select {
+		case <-stop:
+			_ = c.Conn.Close()
+		case <-connectionDone:
+		}
+	}()
+	defer close(connectionDone)
 	log.Printf("Completed handshake with %s\n", peer.IP)
 
 	if err := c.SendInterested(); err != nil {
@@ -196,8 +207,21 @@ func (t *Torrent) startDownloadWorker(peer peers.Peer, workQueue chan *pieceWork
 			continue
 		}
 
-		c.SendHave(pw.index)
-		results <- &pieceResult{pw.index, buf}
+		if err := c.SendHave(pw.index); err != nil {
+			log.Printf("Could not send have for piece #%d to %s: %v\n", pw.index, peer.String(), err)
+		}
+		if !sendPieceResult(results, &pieceResult{pw.index, buf}, stop) {
+			return
+		}
+	}
+}
+
+func sendPieceResult(results chan<- *pieceResult, result *pieceResult, stop <-chan struct{}) bool {
+	select {
+	case results <- result:
+		return true
+	case <-stop:
+		return false
 	}
 }
 
@@ -230,6 +254,7 @@ func (t *Torrent) Download() ([]byte, error) {
 	results := make(chan *pieceResult)
 	workerExited := make(chan struct{}, len(t.Peers))
 	stop := make(chan struct{})
+	var workers sync.WaitGroup
 	for index, hash := range t.PieceHashes {
 		length := t.calculatePieceSize(index)
 		workQueue <- &pieceWork{index, hash, length}
@@ -237,7 +262,15 @@ func (t *Torrent) Download() ([]byte, error) {
 
 	// Start workers
 	for _, peer := range t.Peers {
-		go t.startDownloadWorker(peer, workQueue, results, workerExited, stop)
+		workers.Add(1)
+		go func(peer peers.Peer) {
+			defer workers.Done()
+			t.startDownloadWorker(peer, workQueue, results, workerExited, stop)
+		}(peer)
+	}
+	stopAndWait := func() {
+		close(stop)
+		workers.Wait()
 	}
 
 	// Collect results into a buffer until full
@@ -248,7 +281,7 @@ func (t *Torrent) Download() ([]byte, error) {
 	defer progressTimer.Stop()
 	for donePieces < len(t.PieceHashes) {
 		if activeWorkers == 0 {
-			close(stop)
+			stopAndWait()
 			return nil, fmt.Errorf("all peers failed before all pieces were downloaded")
 		}
 		select {
@@ -265,17 +298,15 @@ func (t *Torrent) Download() ([]byte, error) {
 			progressTimer.Reset(noProgressTimeout)
 
 			percent := float64(donePieces) / float64(len(t.PieceHashes)) * 100
-			numWorkers := runtime.NumGoroutine() - 1 // subtract 1 for main thread
-			log.Printf("(%0.2f%%) Downloaded piece #%d from %d peers\n", percent, res.index, numWorkers)
+			log.Printf("(%0.2f%%) Downloaded piece #%d with %d active peers\n", percent, res.index, activeWorkers)
 		case <-workerExited:
 			activeWorkers--
 		case <-progressTimer.C:
-			close(stop)
+			stopAndWait()
 			return nil, fmt.Errorf("no piece completed for %s", noProgressTimeout)
 		}
 	}
-	close(workQueue)
-	close(stop)
+	stopAndWait()
 
 	return buf, nil
 }
