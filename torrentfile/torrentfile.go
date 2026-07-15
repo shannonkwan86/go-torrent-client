@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"os"
 
 	"github.com/jackpal/bencode-go"
@@ -88,28 +89,22 @@ func newPeerID() ([20]byte, error) {
 
 // Open parses a torrent file
 func Open(path string) (TorrentFile, error) {
-	file, err := os.Open(path)
+	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return TorrentFile{}, err
 	}
-	defer file.Close()
+
+	infoBytes, err := findInfoBytes(data)
+	if err != nil {
+		return TorrentFile{}, fmt.Errorf("read info dictionary: %w", err)
+	}
 
 	bto := bencodeTorrent{}
-	err = bencode.Unmarshal(file, &bto)
+	err = bencode.Unmarshal(bytes.NewReader(data), &bto)
 	if err != nil {
 		return TorrentFile{}, err
 	}
-	return bto.toTorrentFile()
-}
-
-func (i *bencodeInfo) hash() ([20]byte, error) {
-	var buf bytes.Buffer
-	err := bencode.Marshal(&buf, *i)
-	if err != nil {
-		return [20]byte{}, err
-	}
-	h := sha1.Sum(buf.Bytes())
-	return h, nil
+	return bto.toTorrentFile(sha1.Sum(infoBytes))
 }
 
 func (i *bencodeInfo) splitPieceHashes() ([][20]byte, error) {
@@ -128,11 +123,7 @@ func (i *bencodeInfo) splitPieceHashes() ([][20]byte, error) {
 	return hashes, nil
 }
 
-func (bto *bencodeTorrent) toTorrentFile() (TorrentFile, error) {
-	infoHash, err := bto.Info.hash()
-	if err != nil {
-		return TorrentFile{}, err
-	}
+func (bto *bencodeTorrent) toTorrentFile(infoHash [20]byte) (TorrentFile, error) {
 	pieceHashes, err := bto.Info.splitPieceHashes()
 	if err != nil {
 		return TorrentFile{}, err

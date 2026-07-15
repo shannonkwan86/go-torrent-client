@@ -1,9 +1,11 @@
 package torrentfile
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +32,23 @@ func TestOpen(t *testing.T) {
 	require.Nil(t, err)
 
 	assert.Equal(t, expected, torrent)
+}
+
+func TestOpenHashesOriginalInfoBytes(t *testing.T) {
+	info := []byte("d6:lengthi1e4:name1:x12:piece lengthi1e6:pieces20:123456789012345678907:privatei1ee")
+	torrentData := append([]byte("d8:announce14:http://tracker7:comment6:4:info4:info"), info...)
+	torrentData = append(torrentData, 'e')
+	path := filepath.Join(t.TempDir(), "private.torrent")
+	require.NoError(t, ioutil.WriteFile(path, torrentData, 0600))
+
+	torrent, err := Open(path)
+	require.NoError(t, err)
+	assert.Equal(t, sha1.Sum(info), torrent.InfoHash)
+}
+
+func TestFindInfoBytesRejectsMissingInfo(t *testing.T) {
+	_, err := findInfoBytes([]byte("d8:announce14:http://trackere"))
+	assert.EqualError(t, err, "torrent dictionary has no info key")
 }
 
 func TestToTorrentFile(t *testing.T) {
@@ -77,7 +96,7 @@ func TestToTorrentFile(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		to, err := test.input.toTorrentFile()
+		to, err := test.input.toTorrentFile(test.output.InfoHash)
 		if test.fails {
 			assert.NotNil(t, err)
 		} else {
